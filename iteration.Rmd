@@ -1,0 +1,81 @@
+
+```{r}
+# load library
+library(dplyr)
+library(broom)
+library(purrr)
+library(tidyr)
+library(ggplot2)
+# read data
+df = read.csv("homicide-data.csv")
+
+# describe raw data
+df$city_state <- paste(df$city, df$state, sep = ", ")
+df_summary <- df %>%
+  group_by(city_state) %>%
+  summarise(total_homocides = n(),
+            unsolved_homicides = 
+              sum(disposition %in% c("Open/No arrest", "Closed without arrest")))
+df_summary
+```
+
+```{r}
+# Filter the data for Baltimore, MD
+baltimore_data <- df %>% filter(city_state == "Baltimore, MD")
+
+# Perform the proportion test
+test_result <- prop.test(x = sum(baltimore_data$disposition %in% c("Open/No arrest", "Closed without arrest")), 
+                         n = nrow(baltimore_data))
+
+# apply the broom::tidy to the results
+tidy_result <- tidy(test_result)
+
+# pull the estimated proportion and confidence intervals
+estimate <- tidy_result$estimate
+conf.low <- tidy_result$conf.low
+conf.high <- tidy_result$conf.high
+```
+
+```{r}
+df_results <- df %>%
+  group_by(city_state) %>%
+  summarise(total_homicides = n(),
+            unsolved_homicides = sum(disposition %in% c("Open/No arrest", "Closed without arrest")),
+            test_result = list(prop.test(unsolved_homicides, total_homicides))) %>%
+  mutate(tidy_result = map(test_result, tidy)) %>%
+  unnest(cols = tidy_result)
+
+# plot that shows the estimates and CIs for each city 
+df_results %>%
+  arrange(estimate) %>%
+  mutate(city_state = factor(city_state, levels = city_state)) %>%
+  ggplot(aes(x = city_state, y = estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+  coord_flip() +
+  labs(y = "Proportion of Unsolved Homicides", 
+       x = "City",
+       title = "Proportion of Unsolved Homicides in Each City with 95% CI") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+# Problem 2
+```{r}
+path <- "../data"
+
+# Get a list of all CSV files in the directory
+file_names <- list.files(path, "*.csv")
+
+# Create a data frame with the file names
+df <- data.frame(file_names = file_names)
+```
+
+
+
+
+
+
+
+
+
