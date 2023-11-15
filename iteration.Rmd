@@ -6,6 +6,11 @@ library(broom)
 library(purrr)
 library(tidyr)
 library(ggplot2)
+library(stringr)
+```
+
+# Problem 1
+```{r}
 # read data
 df = read.csv("homicide-data.csv")
 
@@ -62,20 +67,148 @@ df_results %>%
 
 # Problem 2
 ```{r}
-path <- "../data"
+# Specify the relative path to your directory
+path <- "data"
 
 # Get a list of all CSV files in the directory
-file_names <- list.files(path, "*.csv")
+file_names <- list.files(path, pattern = "*.csv")
 
 # Create a data frame with the file names
 df <- data.frame(file_names = file_names)
+
+df2 <- df %>%
+  mutate(data = map(file_names, ~read.csv(paste0(path, "/", .x))))
+
+
+# Combine all the data frames into one
+final_df2 <- df2 %>%
+  unnest(data)
+
+final_df2 <- final_df2 %>%
+  mutate(arm = str_extract(file_names, "^[a-z]*"),  # Extract letters at the start
+         subject_id = str_extract(file_names, "\\d+"))  # Extract digits
+
+final_df2 <- final_df2 %>%
+  select(-file_names) %>%
+  select(subject_id, arm, everything())
+
+final_df2_long <- final_df2 %>%
+  pivot_longer(cols = starts_with("week_"),
+               names_to = "week",
+               values_to = "response")
+final_df2_long$week <- as.numeric(str_extract(final_df2_long$week, "\\d+"))
+
+# Create a new variable that combines ID and arm
+final_df2_long <- final_df2_long %>%
+  mutate(id_arm = paste(subject_id, arm, sep = "_"))
 ```
 
+The Spaghetti plot of observations over time shows that the experimental group has a increasing pattern overall while the con group has a stable pattern over time without much changes. 
+```{r}
+# Create spaghetti plot
+ggplot(final_df2_long, aes(x = week, y = response, group = id_arm, color = arm)) +
+  geom_line() +
+  scale_color_manual(values = c("con" = "red", "exp" = "blue")) +
+  labs(title = "Spaghetti plot of observations over time",
+       x = "Week",
+       y = "Response") +
+  theme_minimal() +
+  theme(legend.position = "right")
+```
 
+# Problem 3
+```{r}
+# t-test function
+# returns a df with p-value and estimate
+# input a dataset
+generate_and_test <- function(data, index) {
+  # t-test
+  t_test_result <- t.test(data, mu = 0)
+  
+  # Tidy the output using broom::tidy
+  tidy_result <- broom::tidy(t_test_result)
+  estimate <- tidy_result$estimate[1]
+  p_value <- tidy_result$p.value
+  
+  return(data.frame(index = index, estimate = estimate, p_value = p_value))
+}
 
+# Run the t-test to return a df with mu and p-value
+n=30
+sigma = 5
+mu = 0 
 
+num_datasets <- 5000
+datasets <- lapply(1:num_datasets, function(x) rnorm(100, mean = mu, sd = sigma))
+results <- do.call(rbind, mapply(generate_and_test, 
+                                 datasets, 1:num_datasets, SIMPLIFY = FALSE))
 
+# Display the results
+head(results)
+```
 
+```{r}
+# Repeat the above for μ={1,2,3,4,5,6}
+n=30
+sigma = 5
+mu_values = c(1,2,3,4,5,6)
+
+num_datasets <- 5000
+
+# Create an empty list 
+results_list <- list()
+
+# Loop over the mu_values
+for (mu in mu_values) {
+  # Generate datasets
+  datasets <- lapply(1:num_datasets, function(x) rnorm(100, mean = mu, sd = sigma))
+  
+  # Run the t-test to return a df with mu and p-value
+  results <- do.call(rbind, mapply(generate_and_test, 
+                                   datasets, 1:num_datasets, SIMPLIFY = FALSE))
+  # Add the results to the results_list
+  results_list[[paste0("mu=", mu)]] <- results
+}
+
+# Add a new column indicating whether the null hypothesis was rejected
+for (mu in names(results_list)) {
+  results_list[[mu]]$rejected <- results_list[[mu]]$p_value < 0.05
+  results_list[[mu]]$mu <- as.numeric(gsub("mu=", "", mu))  # Add the true value of mu
+}
+
+# Combine all results into one data frame
+all_results <- do.call(rbind, results_list)
+
+# Calculate the proportion of times the null hypothesis was rejected for each value of mu
+proportions <- aggregate(rejected ~ mu, data = all_results, FUN = mean)
+```
+
+The proportion of times null was rejected increases as miu increase. When miu reaches around 3, The proportion of times null was rejected reaches around 1. 
+```{r}
+# Plot showing the proportion of times the null was rejected (the power of the test) on the y axis and the true value of μ on the x axis
+
+ggplot(proportions, aes(x = mu, y = rejected)) +
+  geom_line() +
+  labs(x = "True value of μ", y = "Proportion of times null was rejected",
+       title = "Power of the t-test for different values of μ")
+
+```
+
+the sample average of μ̂ across tests for which the null is rejected is approximately equal to the true value of μ. This make sense because when null hypothesis is rejected, it means that the sample mean is statistically different from 0, which is reflected by being closer to the true value of μ.
+```{r}
+# average estimate of u
+averages <- aggregate(estimate ~ mu, data = all_results, FUN = mean)
+averages_rejected <- aggregate(estimate ~ mu, data = all_results[all_results$rejected, ], FUN = mean)
+
+# Plot average estimate of μ̂ for different values of 
+ggplot() +
+  geom_line(data = averages, aes(x = mu, y = estimate), color = "blue") +
+  geom_line(data = averages_rejected, aes(x = mu, y = estimate), color = "red") +
+  labs(x = "True value of μ", y = "Average estimate of μ̂",
+       title = "Average estimate of μ̂ for different values of μ",
+       color = "Dataset") +
+  scale_color_manual(values = c("blue", "red"), labels = c("All samples", "Null hypothesis rejected"))
+```
 
 
 
